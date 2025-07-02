@@ -34,6 +34,10 @@
                         <label>Longitude</label>
                         <span id="longitude">--</span>
                     </div>
+                    <div class="stat" style="grid-column: 1 / -1;">
+                        <label>Currently Over</label>
+                        <span id="currentCountry" style="font-size: 1.2rem;">🌍 Loading...</span>
+                    </div>
                     <div class="stat">
                         <label>Altitude</label>
                         <span id="altitude">--</span>
@@ -41,6 +45,10 @@
                     <div class="stat">
                         <label>Velocity</label>
                         <span id="velocity">--</span>
+                    </div>
+                    <div class="stat">
+                        <label>Distance Traveled</label>
+                        <span id="distanceTraveled">0 km</span>
                     </div>
                 </div>
                 <div class="update-time">
@@ -127,6 +135,8 @@
    <script>
     // Initialize map
     let map = L.map('map').setView([0, 0], 2);
+    let totalDistance = 0;
+    let lastPosition = null;
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
     }).addTo(map);
@@ -157,6 +167,38 @@
             document.getElementById('altitude').textContent = data.altitude.toFixed(2) + ' km';
             document.getElementById('velocity').textContent = data.velocity.toFixed(0) + ' km/h';
             document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${data.latitude}&lon=${data.longitude}&zoom=3`)
+                .then(res => res.json())
+                .then(geoData => {
+                    const country = geoData.address?.country || 'International Waters';
+                    const flag = geoData.address?.country_code ? 
+                        `https://flagcdn.com/24x18/${geoData.address.country_code.toLowerCase()}.png` : null;
+        
+                    document.getElementById('currentCountry').innerHTML = flag ? 
+                        `<img src="${flag}" style="width: 24px; margin-right: 8px; vertical-align: middle;">${country}` : 
+                        `🌊 ${country}`;
+                })
+                 .catch(() => {
+                    document.getElementById('currentCountry').textContent = '🌊 Ocean';
+                });
+
+
+            if (lastPosition) {
+            // Calculate distance traveled using Haversine formula
+            const R = 6371; // Earth's radius in km
+            const dLat = (data.latitude - lastPosition.lat) * Math.PI / 180;
+            const dLon = (data.longitude - lastPosition.lon) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lastPosition.lat * Math.PI / 180) * Math.cos(data.latitude * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distance = R * c;
+    
+            totalDistance += distance;
+            document.getElementById('distanceTraveled').textContent = totalDistance.toFixed(0) + ' km';
+}
+lastPosition = { lat: data.latitude, lon: data.longitude };
             
             // Update map
             issMarker.setLatLng([data.latitude, data.longitude]);
