@@ -34,10 +34,6 @@
                         <label>Longitude</label>
                         <span id="longitude">--</span>
                     </div>
-                    <div class="stat" style="grid-column: 1 / -1;">
-                        <label>Currently Over</label>
-                        <span id="currentCountry" style="font-size: 1.2rem;">🌍 Loading...</span>
-                    </div>
                     <div class="stat">
                         <label>Altitude</label>
                         <span id="altitude">--</span>
@@ -49,6 +45,10 @@
                     <div class="stat">
                         <label>Distance Traveled</label>
                         <span id="distanceTraveled">0 km</span>
+                    </div>
+                    <div class="stat country-stat">
+                        <label>Currently Over</label>
+                        <span id="currentCountry">🌍 Loading...</span>
                     </div>
                 </div>
                 <div class="update-time">
@@ -76,6 +76,9 @@
                     </button>
                     <button id="centerMap" class="btn">
                         <span class="btn-icon">🎯</span> Center ISS
+                    </button>
+                    <button id="toggleDayNight" class="btn">
+                        <span class="btn-icon">🌓</span> Day/Night: ON
                     </button>
                 </div>
             </div>
@@ -132,368 +135,395 @@
         </footer>
     </div>
 
-   <script>
-    // Initialize map
-    let map = L.map('map').setView([0, 0], 2);
-    let totalDistance = 0;
-    let lastPosition = null;
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    <script>
+        // Initialize variables
+        let map = L.map('map').setView([0, 0], 2);
+        let issMarker, pathLine, terminatorLine;
+        let isTracking = true;
+        let showDayNight = true;
+        let issPath = [];
+        let totalDistance = 0;
+        let lastPosition = null;
 
-    // ISS marker with custom icon
-    const issIcon = L.divIcon({
-        html: '<div class="iss-marker">🛸</div>',
-        iconSize: [40, 40],
-        className: 'custom-div-icon'
-    });
-    
-    let issMarker = L.marker([0, 0], { icon: issIcon }).addTo(map);
-    let isTracking = true;
+        // Initialize map
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
 
-    // Track ISS path
-    let issPath = [];
-    let pathLine = L.polyline([], { color: '#ff6b6b', weight: 2, opacity: 0.8 }).addTo(map);
-
-    // Update ISS Position
-    async function updateISSPosition() {
-        try {
-            const response = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
-            const data = await response.json();
-            
-            // Update display
-            document.getElementById('latitude').textContent = data.latitude.toFixed(4) + '°';
-            document.getElementById('longitude').textContent = data.longitude.toFixed(4) + '°';
-            document.getElementById('altitude').textContent = data.altitude.toFixed(2) + ' km';
-            document.getElementById('velocity').textContent = data.velocity.toFixed(0) + ' km/h';
-            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${data.latitude}&lon=${data.longitude}&zoom=3`)
-                .then(res => res.json())
-                .then(geoData => {
-                    const country = geoData.address?.country || 'International Waters';
-                    const flag = geoData.address?.country_code ? 
-                        `https://flagcdn.com/24x18/${geoData.address.country_code.toLowerCase()}.png` : null;
+        // ISS marker with custom icon
+        const issIcon = L.divIcon({
+            html: '<div class="iss-marker">🛸</div>',
+            iconSize: [40, 40],
+            className: 'custom-div-icon'
+        });
         
-                    document.getElementById('currentCountry').innerHTML = flag ? 
-                        `<img src="${flag}" style="width: 24px; margin-right: 8px; vertical-align: middle;">${country}` : 
-                        `🌊 ${country}`;
-                })
-                 .catch(() => {
-                    document.getElementById('currentCountry').textContent = '🌊 Ocean';
-                });
+        issMarker = L.marker([0, 0], { icon: issIcon }).addTo(map);
+        pathLine = L.polyline([], { color: '#ff6b6b', weight: 2, opacity: 0.8 }).addTo(map);
 
+        // Update ISS Position
+        async function updateISSPosition() {
+            try {
+                const response = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+                const data = await response.json();
+                
+                // Update display
+                document.getElementById('latitude').textContent = data.latitude.toFixed(4) + '°';
+                document.getElementById('longitude').textContent = data.longitude.toFixed(4) + '°';
+                document.getElementById('altitude').textContent = data.altitude.toFixed(2) + ' km';
+                document.getElementById('velocity').textContent = data.velocity.toFixed(0) + ' km/h';
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                
+                // Calculate distance traveled
+                if (lastPosition) {
+                    const R = 6371; // Earth's radius in km
+                    const dLat = (data.latitude - lastPosition.lat) * Math.PI / 180;
+                    const dLon = (data.longitude - lastPosition.lon) * Math.PI / 180;
+                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                              Math.cos(lastPosition.lat * Math.PI / 180) * Math.cos(data.latitude * Math.PI / 180) *
+                              Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    const distance = R * c;
+                    
+                    totalDistance += distance;
+                    document.getElementById('distanceTraveled').textContent = totalDistance.toFixed(0) + ' km';
+                }
+                lastPosition = { lat: data.latitude, lon: data.longitude };
+                
+                // Update country flyover
+                fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${data.latitude}&lon=${data.longitude}&zoom=3`)
+                    .then(res => res.json())
+                    .then(geoData => {
+                        const country = geoData.address?.country || 'International Waters';
+                        const flag = geoData.address?.country_code ? 
+                            `https://flagcdn.com/24x18/${geoData.address.country_code.toLowerCase()}.png` : null;
+                        
+                        document.getElementById('currentCountry').innerHTML = flag ? 
+                            `<img src="${flag}" style="width: 24px; margin-right: 8px; vertical-align: middle;">${country}` : 
+                            `🌊 ${country}`;
+                    })
+                    .catch(() => {
+                        document.getElementById('currentCountry').textContent = '🌊 Ocean';
+                    });
+                
+                // Update map
+                issMarker.setLatLng([data.latitude, data.longitude]);
+                
+                // Add to path
+                issPath.push([data.latitude, data.longitude]);
+                if (issPath.length > 100) issPath.shift();
+                pathLine.setLatLngs(issPath);
+                
+                // Auto-center map
+                if (isTracking) {
+                    map.setView([data.latitude, data.longitude], map.getZoom());
+                }
+                
+                // Update status
+                document.getElementById('status').textContent = 'Live - Tracking Active';
+                document.querySelector('.pulse').style.backgroundColor = '#4ade80';
+                
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('status').textContent = 'Connection Error';
+                document.querySelector('.pulse').style.backgroundColor = '#ef4444';
+            }
+        }
 
-            if (lastPosition) {
-            // Calculate distance traveled using Haversine formula
-            const R = 6371; // Earth's radius in km
-            const dLat = (data.latitude - lastPosition.lat) * Math.PI / 180;
-            const dLon = (data.longitude - lastPosition.lon) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lastPosition.lat * Math.PI / 180) * Math.cos(data.latitude * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            const distance = R * c;
-    
-            totalDistance += distance;
-            document.getElementById('distanceTraveled').textContent = totalDistance.toFixed(0) + ' km';
-}
-lastPosition = { lat: data.latitude, lon: data.longitude };
+        // Update day/night terminator
+        function updateDayNight() {
+            if (!showDayNight) {
+                if (terminatorLine) {
+                    map.removeLayer(terminatorLine);
+                }
+                return;
+            }
+
+            const now = new Date();
+            const julianDay = (now.getTime() / 86400000) + 2440587.5;
+            const n = julianDay - 2451545.0;
+            const L = (280.460 + 0.9856474 * n) % 360;
+            const g = ((357.528 + 0.9856003 * n) % 360) * Math.PI / 180;
+            const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * Math.PI / 180;
             
-            // Update map
-            issMarker.setLatLng([data.latitude, data.longitude]);
+            const declination = Math.asin(Math.sin(23.45 * Math.PI / 180) * Math.sin(lambda)) * 180 / Math.PI;
             
-            // Add to path
-            issPath.push([data.latitude, data.longitude]);
-            if (issPath.length > 100) issPath.shift(); // Keep last 100 points
-            pathLine.setLatLngs(issPath);
-            
-            // Auto-center map
-            if (isTracking) {
-                map.setView([data.latitude, data.longitude], map.getZoom());
+            const terminatorCoords = [];
+            for (let lng = -180; lng <= 180; lng += 2) {
+                const lat = Math.atan(-Math.cos(lng * Math.PI / 180) / Math.tan(declination * Math.PI / 180)) * 180 / Math.PI;
+                terminatorCoords.push([lat, lng]);
             }
             
-            // Update status
-            document.getElementById('status').textContent = 'Live - Tracking Active';
-            document.querySelector('.pulse').style.backgroundColor = '#4ade80';
-            
-        } catch (error) {
-            console.error('Error:', error);
-            document.getElementById('status').textContent = 'Connection Error';
-            document.querySelector('.pulse').style.backgroundColor = '#ef4444';
+            if (terminatorLine) {
+                terminatorLine.setLatLngs(terminatorCoords);
+            } else {
+                terminatorLine = L.polyline(terminatorCoords, {
+                    color: '#ff9500',
+                    weight: 2,
+                    opacity: 0.8,
+                    dashArray: '10, 10'
+                }).addTo(map);
+            }
         }
-    }
 
-    // Fetch Astronauts
-    async function fetchAstronauts() {
-        try {
-            // Using proxy to avoid CORS issues
-            const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('http://api.open-notify.org/astros.json'));
-            const data = await response.json();
-            
-            document.getElementById('astronautCount').textContent = data.number;
-            
-            // Show all astronauts, not just ISS
-            const listHTML = data.people
-                .map(person => `
+        // Fetch Astronauts
+        async function fetchAstronauts() {
+            try {
+                const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('http://api.open-notify.org/astros.json'));
+                const data = await response.json();
+                
+                document.getElementById('astronautCount').textContent = data.number;
+                
+                const listHTML = data.people
+                    .map(person => `
+                        <div class="astronaut-item">
+                            <span class="astronaut-icon">👨‍🚀</span>
+                            <div>
+                                <strong>${person.name}</strong>
+                                <small>${person.craft}</small>
+                            </div>
+                        </div>
+                    `).join('');
+                
+                document.getElementById('astronautList').innerHTML = listHTML || '<p>Unable to load astronaut data</p>';
+                
+            } catch (error) {
+                console.error('Error fetching astronauts:', error);
+                document.getElementById('astronautCount').textContent = '7';
+                document.getElementById('astronautList').innerHTML = `
                     <div class="astronaut-item">
                         <span class="astronaut-icon">👨‍🚀</span>
                         <div>
-                            <strong>${person.name}</strong>
-                            <small>${person.craft}</small>
+                            <strong>Data temporarily unavailable</strong>
+                            <small>ISS typically has 7 crew members</small>
                         </div>
-                    </div>
-                `).join('');
-            
-            document.getElementById('astronautList').innerHTML = listHTML || '<p>Unable to load astronaut data</p>';
-            
-        } catch (error) {
-            console.error('Error fetching astronauts:', error);
-            // Fallback with known astronauts (as of 2025)
-            document.getElementById('astronautCount').textContent = '7';
-            document.getElementById('astronautList').innerHTML = `
-                <div class="astronaut-item">
-                    <span class="astronaut-icon">👨‍🚀</span>
-                    <div>
-                        <strong>Data temporarily unavailable</strong>
-                        <small>ISS typically has 7 crew members</small>
-                    </div>
-                </div>
-            `;
-        }
-    }
-
-    // Fetch NASA Image of the Day - FIXED to update daily
-    async function fetchNASAImage() {
-        try {
-            // Get today's date
-            const today = new Date().toISOString().split('T')[0];
-            
-            // Fetch with today's date
-            const response = await fetch(`https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&date=${today}`);
-            const data = await response.json();
-            
-            if (data.media_type === 'image') {
-                document.getElementById('nasaImage').src = data.url;
-                document.getElementById('nasaTitle').textContent = data.title;
-                document.getElementById('nasaDate').textContent = new Date(data.date).toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                });
-            } else if (data.media_type === 'video') {
-                document.getElementById('nasaImageContainer').innerHTML = `
-                    <div style="padding: 20px; text-align: center;">
-                        <h3>${data.title}</h3>
-                        <p>Today's feature is a video</p>
-                        <a href="${data.url}" target="_blank" class="btn btn-primary" style="margin-top: 10px;">Watch Video</a>
                     </div>
                 `;
             }
-            
-        } catch (error) {
-            console.error('Error fetching NASA image:', error);
-            // Try yesterday's image as fallback
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = yesterday.toISOString().split('T')[0];
-            
+        }
+
+        // Fetch NASA Image of the Day
+        async function fetchNASAImage() {
             try {
-                const response = await fetch(`https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&date=${yesterdayStr}`);
+                const today = new Date().toISOString().split('T')[0];
+                const response = await fetch(`https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&date=${today}`);
                 const data = await response.json();
+                
                 if (data.media_type === 'image') {
                     document.getElementById('nasaImage').src = data.url;
                     document.getElementById('nasaTitle').textContent = data.title;
-                    document.getElementById('nasaDate').textContent = yesterday.toLocaleDateString();
-                }
-            } catch {
-                document.getElementById('nasaImageContainer').innerHTML = '<p>Unable to load NASA image</p>';
-            }
-        }
-    }
-
-    // Real Space Weather Data - Using NOAA proxy
-    async function updateSpaceWeather() {
-        try {
-            // Fetch real solar wind data from NOAA (using proxy)
-            const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json'));
-            const data = await response.json();
-            
-            if (data && data.length > 1) {
-                // Get latest reading (last item in array)
-                const latest = data[data.length - 1];
-                const windSpeed = Math.round(parseFloat(latest[2])); // Speed in km/s
-                
-                document.getElementById('solarWind').textContent = windSpeed + ' km/s';
-                
-                // Determine activity level based on speed
-                let activity = 'Quiet';
-                let alertLevel = false;
-                
-                if (windSpeed > 800) {
-                    activity = 'Severe Storm';
-                    alertLevel = true;
-                } else if (windSpeed > 700) {
-                    activity = 'Strong Storm';
-                    alertLevel = true;
-                } else if (windSpeed > 600) {
-                    activity = 'Moderate Storm';
-                } else if (windSpeed > 500) {
-                    activity = 'Minor Storm';
-                } else if (windSpeed > 400) {
-                    activity = 'Active';
+                    document.getElementById('nasaDate').textContent = new Date(data.date).toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                    });
+                } else if (data.media_type === 'video') {
+                    document.getElementById('nasaImageContainer').innerHTML = `
+                        <div style="padding: 20px; text-align: center;">
+                            <h3>${data.title}</h3>
+                            <p>Today's feature is a video</p>
+                            <a href="${data.url}" target="_blank" class="btn btn-primary" style="margin-top: 10px;">Watch Video</a>
+                        </div>
+                    `;
                 }
                 
-                document.getElementById('geoActivity').textContent = activity;
+            } catch (error) {
+                console.error('Error fetching NASA image:', error);
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
                 
-                if (alertLevel) {
-                    document.getElementById('weatherAlert').style.display = 'flex';
-                    document.getElementById('alertText').textContent = 'High solar activity detected!';
-                } else {
-                    document.getElementById('weatherAlert').style.display = 'none';
+                try {
+                    const response = await fetch(`https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&date=${yesterdayStr}`);
+                    const data = await response.json();
+                    if (data.media_type === 'image') {
+                        document.getElementById('nasaImage').src = data.url;
+                        document.getElementById('nasaTitle').textContent = data.title;
+                        document.getElementById('nasaDate').textContent = yesterday.toLocaleDateString();
+                    }
+                } catch {
+                    document.getElementById('nasaImageContainer').innerHTML = '<p>Unable to load NASA image</p>';
                 }
             }
-        } catch (error) {
-            console.error('Error fetching space weather:', error);
-            // Fallback to simulated data
-            const windSpeed = Math.floor(Math.random() * 200) + 300;
-            document.getElementById('solarWind').textContent = windSpeed + ' km/s';
-            document.getElementById('geoActivity').textContent = 'Data temporarily unavailable';
         }
-    }
 
-    // Get ISS Pass Times - FIXED for better city recognition
-    document.getElementById('getPassTimes').addEventListener('click', async () => {
-        const location = document.getElementById('locationInput').value.trim();
-        if (!location || location.length < 2) {
-            document.getElementById('passTimes').innerHTML = '<p style="color: var(--danger)">Please enter a city name</p>';
-            return;
-        }
-        
-        document.getElementById('passTimes').innerHTML = '<p>Searching...</p>';
-        
-        try {
-            // More flexible search without strict filters
-            const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}&limit=10`);
-            const geoData = await geoResponse.json();
-            
-            if (geoData && geoData.length > 0) {
-                // Take the first result
-                const place = geoData[0];
-                const lat = parseFloat(place.lat);
-                const lon = parseFloat(place.lon);
-                const displayName = place.display_name.split(',')[0];
+        // Real Space Weather Data
+        async function updateSpaceWeather() {
+            try {
+                const response = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json'));
+                const data = await response.json();
                 
-                // Get current ISS position
-                const issResponse = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
-                const issData = await issResponse.json();
-                
-                // Calculate when ISS will pass over this location
-                const orbitalPeriod = 90 * 60 * 1000; // 90 minutes in milliseconds
-                const now = new Date();
-                const passes = [];
-                
-                // Generate next few pass times
-                for (let i = 0; i < 5; i++) {
-                    const passTime = new Date(now.getTime() + (orbitalPeriod * (i + 0.5) + Math.random() * orbitalPeriod * 0.3));
+                if (data && data.length > 1) {
+                    const latest = data[data.length - 1];
+                    const windSpeed = Math.round(parseFloat(latest[2]));
                     
-                    // Check if pass will be visible (roughly during dawn/dusk)
-                    const passHour = passTime.getHours();
-                    const isVisible = (passHour >= 4 && passHour <= 7) || (passHour >= 18 && passHour <= 22);
+                    document.getElementById('solarWind').textContent = windSpeed + ' km/s';
                     
-                    // Only add visible passes
-                    if (isVisible && passes.length < 3) {
-                        passes.push({
-                            time: passTime,
-                            duration: Math.floor(Math.random() * 3) + 4, // 4-7 minutes
-                            elevation: Math.floor(Math.random() * 60) + 30 // 30-90 degrees
-                        });
+                    let activity = 'Quiet';
+                    let alertLevel = false;
+                    
+                    if (windSpeed > 800) {
+                        activity = 'Severe Storm';
+                        alertLevel = true;
+                    } else if (windSpeed > 700) {
+                        activity = 'Strong Storm';
+                        alertLevel = true;
+                    } else if (windSpeed > 600) {
+                        activity = 'Moderate Storm';
+                    } else if (windSpeed > 500) {
+                        activity = 'Minor Storm';
+                    } else if (windSpeed > 400) {
+                        activity = 'Active';
+                    }
+                    
+                    document.getElementById('geoActivity').textContent = activity;
+                    
+                    if (alertLevel) {
+                        document.getElementById('weatherAlert').style.display = 'flex';
+                        document.getElementById('alertText').textContent = 'High solar activity detected!';
+                    } else {
+                        document.getElementById('weatherAlert').style.display = 'none';
                     }
                 }
+            } catch (error) {
+                console.error('Error fetching space weather:', error);
+                const windSpeed = Math.floor(Math.random() * 200) + 300;
+                document.getElementById('solarWind').textContent = windSpeed + ' km/s';
+                document.getElementById('geoActivity').textContent = 'Data temporarily unavailable';
+            }
+        }
+
+        // Get ISS Pass Times
+        document.getElementById('getPassTimes').addEventListener('click', async () => {
+            const location = document.getElementById('locationInput').value.trim();
+            if (!location || location.length < 2) {
+                document.getElementById('passTimes').innerHTML = '<p style="color: var(--danger)">Please enter a city name</p>';
+                return;
+            }
+            
+            document.getElementById('passTimes').innerHTML = '<p>Searching...</p>';
+            
+            try {
+                const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}&limit=10`);
+                const geoData = await geoResponse.json();
                 
-                // If no visible passes in next few orbits, show next pass regardless
-                if (passes.length === 0) {
-                    const nextPass = new Date(now.getTime() + orbitalPeriod);
-                    passes.push({
-                        time: nextPass,
-                        duration: 5,
-                        elevation: 45,
-                        visible: false
-                    });
-                }
-                
-                const passHTML = passes.map(pass => `
-                    <div class="pass-item" style="border-left: 3px solid ${pass.visible !== false ? 'var(--success)' : 'var(--warning)'}">
-                        <strong>${pass.time.toLocaleDateString()}</strong>
-                        <span>${pass.time.toLocaleTimeString()}</span>
-                        <small>Duration: ~${pass.duration} minutes | Max elevation: ${pass.elevation}°</small>
-                        ${pass.visible === false ? '<small style="color: var(--warning)">☀️ Daylight pass - difficult to see</small>' : '<small style="color: var(--success)">🌟 Good visibility expected</small>'}
-                    </div>
-                `).join('');
-                
-                document.getElementById('passTimes').innerHTML = 
-                    `<p style="margin-bottom: 10px; color: var(--text-secondary);">
-                        Next ISS passes over <strong>${displayName}</strong>:
-                    </p>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;">
-                        Location: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°
-                    </p>` + passHTML;
+                if (geoData && geoData.length > 0) {
+                    const place = geoData[0];
+                    const lat = parseFloat(place.lat);
+                    const lon = parseFloat(place.lon);
+                    const displayName = place.display_name.split(',')[0];
                     
-            } else {
+                    const issResponse = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+                    const issData = await issResponse.json();
+                    
+                    const orbitalPeriod = 90 * 60 * 1000;
+                    const now = new Date();
+                    const passes = [];
+                    
+                    for (let i = 0; i < 5; i++) {
+                        const passTime = new Date(now.getTime() + (orbitalPeriod * (i + 0.5) + Math.random() * orbitalPeriod * 0.3));
+                        
+                        const passHour = passTime.getHours();
+                        const isVisible = (passHour >= 4 && passHour <= 7) || (passHour >= 18 && passHour <= 22);
+                        
+                        if (isVisible && passes.length < 3) {
+                            passes.push({
+                                time: passTime,
+                                duration: Math.floor(Math.random() * 3) + 4,
+                                elevation: Math.floor(Math.random() * 60) + 30
+                            });
+                        }
+                    }
+                    
+                    if (passes.length === 0) {
+                        const nextPass = new Date(now.getTime() + orbitalPeriod);
+                        passes.push({
+                            time: nextPass,
+                            duration: 5,
+                            elevation: 45,
+                            visible: false
+                        });
+                    }
+                    
+                    const passHTML = passes.map(pass => `
+                        <div class="pass-item" style="border-left: 3px solid ${pass.visible !== false ? 'var(--success)' : 'var(--warning)'}">
+                            <strong>${pass.time.toLocaleDateString()}</strong>
+                            <span>${pass.time.toLocaleTimeString()}</span>
+                            <small>Duration: ~${pass.duration} minutes | Max elevation: ${pass.elevation}°</small>
+                            ${pass.visible === false ? '<small style="color: var(--warning)">☀️ Daylight pass - difficult to see</small>' : '<small style="color: var(--success)">🌟 Good visibility expected</small>'}
+                        </div>
+                    `).join('');
+                    
+                    document.getElementById('passTimes').innerHTML = 
+                        `<p style="margin-bottom: 10px; color: var(--text-secondary);">
+                            Next ISS passes over <strong>${displayName}</strong>:
+                        </p>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 15px;">
+                            Location: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°
+                        </p>` + passHTML;
+                        
+                } else {
+                    document.getElementById('passTimes').innerHTML = `
+                        <p style="color: var(--danger)">Location "${location}" not found</p>
+                        <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 10px;">
+                            Try being more specific (e.g., "Dallas, Texas" or "Mumbai, India")
+                        </p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error getting pass times:', error);
                 document.getElementById('passTimes').innerHTML = `
-                    <p style="color: var(--danger)">Location "${location}" not found</p>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 10px;">
-                        Try being more specific (e.g., "Dallas, Texas" or "Mumbai, India")
-                    </p>
+                    <p style="color: var(--danger)">Error calculating pass times</p>
+                    <p style="font-size: 0.9rem; color: var(--text-secondary)">Please try again</p>
                 `;
             }
-        } catch (error) {
-            console.error('Error getting pass times:', error);
-            document.getElementById('passTimes').innerHTML = `
-                <p style="color: var(--danger)">Error calculating pass times</p>
-                <p style="font-size: 0.9rem; color: var(--text-secondary)">Please try again</p>
-            `;
-        }
-    });
+        });
 
-    // Remove strict input validation to allow all city names
-    document.getElementById('locationInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            document.getElementById('getPassTimes').click();
-        }
-    });
+        // Event listeners
+        document.getElementById('locationInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('getPassTimes').click();
+            }
+        });
 
-    // Toggle tracking
-    document.getElementById('toggleTracking').addEventListener('click', () => {
-        isTracking = !isTracking;
-        const btn = document.getElementById('toggleTracking');
-        btn.innerHTML = isTracking ? 
-            '<span class="btn-icon">📍</span> Auto-Track: ON' : 
-            '<span class="btn-icon">📍</span> Auto-Track: OFF';
-        btn.classList.toggle('btn-primary');
-    });
+        document.getElementById('toggleTracking').addEventListener('click', () => {
+            isTracking = !isTracking;
+            const btn = document.getElementById('toggleTracking');
+            btn.innerHTML = isTracking ? 
+                '<span class="btn-icon">📍</span> Auto-Track: ON' : 
+                '<span class="btn-icon">📍</span> Auto-Track: OFF';
+            btn.classList.toggle('btn-primary');
+        });
 
-    // Center map on ISS
-    document.getElementById('centerMap').addEventListener('click', () => {
-        const lat = parseFloat(document.getElementById('latitude').textContent);
-        const lon = parseFloat(document.getElementById('longitude').textContent);
-        map.setView([lat, lon], 4);
-    });
+        document.getElementById('centerMap').addEventListener('click', () => {
+            const lat = parseFloat(document.getElementById('latitude').textContent);
+            const lon = parseFloat(document.getElementById('longitude').textContent);
+            map.setView([lat, lon], 4);
+        });
 
-    // Initial load
-    updateISSPosition();
-    fetchAstronauts();
-    fetchNASAImage();
-    updateSpaceWeather();
+        document.getElementById('toggleDayNight').addEventListener('click', () => {
+            showDayNight = !showDayNight;
+            const btn = document.getElementById('toggleDayNight');
+            btn.innerHTML = showDayNight ? 
+                '<span class="btn-icon">🌓</span> Day/Night: ON' : 
+                '<span class="btn-icon">🌓</span> Day/Night: OFF';
+            btn.classList.toggle('btn-primary', showDayNight);
+            updateDayNight();
+        });
 
-    // Update intervals
-    setInterval(updateISSPosition, 5000); // Every 5 seconds
-    setInterval(fetchAstronauts, 60000); // Every minute
-    setInterval(updateSpaceWeather, 30000); // Every 30 seconds
-    
-    // Update NASA image daily (check every hour)
-    setInterval(fetchNASAImage, 3600000); // Every hour
-</script>
+        // Initial load
+        updateISSPosition();
+        fetchAstronauts();
+        fetchNASAImage();
+        updateSpaceWeather();
+        updateDayNight();
+
+        // Update intervals
+        setInterval(updateISSPosition, 5000); // Every 5 seconds
+        setInterval(fetchAstronauts, 60000); // Every minute
+        setInterval(updateSpaceWeather, 30000); // Every 30 seconds
+        setInterval(updateDayNight, 60000); // Every minute
+        setInterval(fetchNASAImage, 3600000); // Every hour
+    </script>
 </body>
 </html>
