@@ -104,9 +104,14 @@ header p {
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 24px;
-    transition: all 0.3s ease;
+    transition: transform 0.6s;
     position: relative;
     overflow: hidden;
+    transform-style: preserve-3d;
+}
+
+.card > * {
+    transform: translateZ(20px);
 }
 
 .card::before {
@@ -126,7 +131,7 @@ header p {
 }
 
 .card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-4px) rotateX(-5deg) rotateY(5deg);
     border-color: var(--accent);
     box-shadow: 0 10px 30px rgba(74, 158, 255, 0.2);
 }
@@ -152,6 +157,10 @@ header p {
     padding: 16px;
     border-radius: 8px;
     text-align: center;
+}
+
+.stat:hover {
+    animation: float-stat 2s ease-in-out infinite;
 }
 
 .stat label {
@@ -234,6 +243,10 @@ header p {
     50% { transform: translateY(-10px); }
 }
 
+@keyframes float-stat {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+
 /* Map Controls */
 .map-controls {
     display: flex;
@@ -260,6 +273,13 @@ header p {
     background: var(--bg-primary);
     border-color: var(--accent);
     transform: translateY(-2px);
+}
+
+.btn:hover, .card:hover {
+    box-shadow: 
+        0 0 20px rgba(74, 158, 255, 0.5),
+        0 0 40px rgba(74, 158, 255, 0.3),
+        0 0 60px rgba(74, 158, 255, 0.1);
 }
 
 .btn-primary {
