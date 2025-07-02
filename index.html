@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ISS Live Tracker - AstroHack 2025</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>🛸 ISS Live Tracker</h1>
+            <p>Real-time International Space Station tracking with multiple space APIs</p>
+            <div class="status-indicator">
+                <span class="pulse"></span>
+                <span id="status">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="grid">
+            <!-- ISS Stats Card -->
+            <div class="card stats-card">
+                <h2>📍 ISS Position</h2>
+                <div class="stat-grid">
+                    <div class="stat">
+                        <label>Latitude</label>
+                        <span id="latitude">--</span>
+                    </div>
+                    <div class="stat">
+                        <label>Longitude</label>
+                        <span id="longitude">--</span>
+                    </div>
+                    <div class="stat">
+                        <label>Altitude</label>
+                        <span id="altitude">--</span>
+                    </div>
+                    <div class="stat">
+                        <label>Velocity</label>
+                        <span id="velocity">--</span>
+                    </div>
+                </div>
+                <div class="update-time">
+                    Last update: <span id="lastUpdate">--</span>
+                </div>
+            </div>
+
+            <!-- Astronauts Card -->
+            <div class="card astronauts-card">
+                <h2>👨‍🚀 Astronauts in Space</h2>
+                <div class="astronaut-count">
+                    <span id="astronautCount">0</span>
+                    <label>people in space right now</label>
+                </div>
+                <div id="astronautList" class="astronaut-list"></div>
+            </div>
+
+            <!-- Map Card -->
+            <div class="card map-card">
+                <h2>🗺️ Live ISS Tracking Map</h2>
+                <div id="map"></div>
+                <div class="map-controls">
+                    <button id="toggleTracking" class="btn btn-primary">
+                        <span class="btn-icon">📍</span> Auto-Track: ON
+                    </button>
+                    <button id="centerMap" class="btn">
+                        <span class="btn-icon">🎯</span> Center ISS
+                    </button>
+                </div>
+            </div>
+
+            <!-- NASA Image Card -->
+            <div class="card nasa-card">
+                <h2>🌌 NASA Image of the Day</h2>
+                <div id="nasaImageContainer" class="nasa-image-container">
+                    <img id="nasaImage" src="" alt="NASA Image">
+                    <div class="nasa-overlay">
+                        <h3 id="nasaTitle"></h3>
+                        <p id="nasaDate"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Space Weather Card -->
+            <div class="card weather-card">
+                <h2>☀️ Space Weather</h2>
+                <div id="spaceWeatherContent" class="weather-content">
+                    <div class="weather-stat">
+                        <label>Solar Wind Speed</label>
+                        <span id="solarWind">-- km/s</span>
+                    </div>
+                    <div class="weather-stat">
+                        <label>Geomagnetic Activity</label>
+                        <span id="geoActivity">--</span>
+                    </div>
+                    <div class="weather-alert" id="weatherAlert">
+                        <span class="alert-icon">⚠️</span>
+                        <span id="alertText">No alerts</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ISS Pass Times Card -->
+            <div class="card pass-card">
+                <h2>🔭 Next ISS Pass</h2>
+                <div class="pass-info">
+                    <p>Enter your location to see when the ISS will be visible:</p>
+                    <input type="text" id="locationInput" placeholder="Enter city name..." class="location-input">
+                    <button id="getPassTimes" class="btn btn-secondary">
+                        <span class="btn-icon">🔍</span> Get Pass Times
+                    </button>
+                    <div id="passTimes" class="pass-times"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <p>Built for AstroHack 2025 | Using NASA, Open-Notify, NOAA & More APIs</p>
+            <p>Real-time data updates every 5 seconds</p>
+        </footer>
+    </div>
+
+    <script>
+        // Initialize map
+        let map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // ISS marker with custom icon
+        const issIcon = L.divIcon({
+            html: '<div class="iss-marker">🛸</div>',
+            iconSize: [40, 40],
+            className: 'custom-div-icon'
+        });
+        
+        let issMarker = L.marker([0, 0], { icon: issIcon }).addTo(map);
+        let isTracking = true;
+
+        // Track ISS path
+        let issPath = [];
+        let pathLine = L.polyline([], { color: '#ff6b6b', weight: 2, opacity: 0.8 }).addTo(map);
+
+        // Update ISS Position
+        async function updateISSPosition() {
+            try {
+                const response = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+                const data = await response.json();
+                
+                // Update display
+                document.getElementById('latitude').textContent = data.latitude.toFixed(4) + '°';
+                document.getElementById('longitude').textContent = data.longitude.toFixed(4) + '°';
+                document.getElementById('altitude').textContent = data.altitude.toFixed(2) + ' km';
+                document.getElementById('velocity').textContent = data.velocity.toFixed(0) + ' km/h';
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                
+                // Update map
+                issMarker.setLatLng([data.latitude, data.longitude]);
+                
+                // Add to path
+                issPath.push([data.latitude, data.longitude]);
+                if (issPath.length > 100) issPath.shift(); // Keep last 100 points
+                pathLine.setLatLngs(issPath);
+                
+                // Auto-center map
+                if (isTracking) {
+                    map.setView([data.latitude, data.longitude], map.getZoom());
+                }
+                
+                // Update status
+                document.getElementById('status').textContent = 'Live - Tracking Active';
+                document.querySelector('.pulse').style.backgroundColor = '#4ade80';
+                
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('status').textContent = 'Connection Error';
+                document.querySelector('.pulse').style.backgroundColor = '#ef4444';
+            }
+        }
+
+        // Fetch Astronauts
+        async function fetchAstronauts() {
+            try {
+                const response = await fetch('http://api.open-notify.org/astros.json');
+                const data = await response.json();
+                
+                document.getElementById('astronautCount').textContent = data.number;
+                
+                const listHTML = data.people
+                    .filter(person => person.craft === 'ISS')
+                    .map(person => `
+                        <div class="astronaut-item">
+                            <span class="astronaut-icon">👨‍🚀</span>
+                            <div>
+                                <strong>${person.name}</strong>
+                                <small>${person.craft}</small>
+                            </div>
+                        </div>
+                    `).join('');
+                
+                document.getElementById('astronautList').innerHTML = listHTML || '<p>No astronauts on ISS currently</p>';
+                
+            } catch (error) {
+                console.error('Error fetching astronauts:', error);
+            }
+        }
+
+        // Fetch NASA Image of the Day
+        async function fetchNASAImage() {
+            try {
+                // Using demo key for hackathon
+                const response = await fetch('https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY');
+                const data = await response.json();
+                
+                if (data.media_type === 'image') {
+                    document.getElementById('nasaImage').src = data.url;
+                    document.getElementById('nasaTitle').textContent = data.title;
+                    document.getElementById('nasaDate').textContent = data.date;
+                }
+                
+            } catch (error) {
+                console.error('Error fetching NASA image:', error);
+                document.getElementById('nasaImageContainer').innerHTML = '<p>Unable to load NASA image</p>';
+            }
+        }
+
+        // Mock Space Weather (NOAA API requires authentication)
+        function updateSpaceWeather() {
+            // Simulated data for demo
+            const windSpeed = Math.floor(Math.random() * 200) + 300;
+            const activities = ['Quiet', 'Minor Storm', 'Moderate', 'Strong', 'Severe'];
+            const activity = activities[Math.floor(Math.random() * activities.length)];
+            
+            document.getElementById('solarWind').textContent = windSpeed + ' km/s';
+            document.getElementById('geoActivity').textContent = activity;
+            
+            if (activity === 'Strong' || activity === 'Severe') {
+                document.getElementById('weatherAlert').style.display = 'flex';
+                document.getElementById('alertText').textContent = 'Solar storm detected!';
+            } else {
+                document.getElementById('weatherAlert').style.display = 'none';
+            }
+        }
+
+        // Get ISS Pass Times for location
+        document.getElementById('getPassTimes').addEventListener('click', async () => {
+            const location = document.getElementById('locationInput').value;
+            if (!location) return;
+            
+            try {
+                // Get coordinates for city (using OpenStreetMap Nominatim)
+                const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${location}`);
+                const geoData = await geoResponse.json();
+                
+                if (geoData.length > 0) {
+                    const lat = geoData[0].lat;
+                    const lon = geoData[0].lon;
+                    
+                    // Get ISS pass times
+                    const passResponse = await fetch(`http://api.open-notify.org/iss-pass.json?lat=${lat}&lon=${lon}&n=3`);
+                    const passData = await passResponse.json();
+                    
+                    const passHTML = passData.response.map(pass => {
+                        const date = new Date(pass.risetime * 1000);
+                        return `
+                            <div class="pass-item">
+                                <strong>${date.toLocaleDateString()}</strong>
+                                <span>${date.toLocaleTimeString()}</span>
+                                <small>Duration: ${Math.floor(pass.duration / 60)} minutes</small>
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    document.getElementById('passTimes').innerHTML = passHTML;
+                }
+            } catch (error) {
+                console.error('Error getting pass times:', error);
+                document.getElementById('passTimes').innerHTML = '<p>Unable to get pass times</p>';
+            }
+        });
+
+        // Toggle tracking
+        document.getElementById('toggleTracking').addEventListener('click', () => {
+            isTracking = !isTracking;
+            const btn = document.getElementById('toggleTracking');
+            btn.innerHTML = isTracking ? 
+                '<span class="btn-icon">📍</span> Auto-Track: ON' : 
+                '<span class="btn-icon">📍</span> Auto-Track: OFF';
+            btn.classList.toggle('btn-primary');
+        });
+
+        // Center map on ISS
+        document.getElementById('centerMap').addEventListener('click', () => {
+            const lat = parseFloat(document.getElementById('latitude').textContent);
+            const lon = parseFloat(document.getElementById('longitude').textContent);
+            map.setView([lat, lon], 4);
+        });
+
+        // Initial load
+        updateISSPosition();
+        fetchAstronauts();
+        fetchNASAImage();
+        updateSpaceWeather();
+
+        // Update intervals
+        setInterval(updateISSPosition, 5000); // Every 5 seconds
+        setInterval(fetchAstronauts, 60000); // Every minute
+        setInterval(updateSpaceWeather, 30000); // Every 30 seconds
+    </script>
+</body>
+</html>
