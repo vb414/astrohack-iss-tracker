@@ -159,75 +159,125 @@
 
     // Update ISS Position
     async function updateISSPosition() {
-        try {
-            const response = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
-            const data = await response.json();
-            
-            // Update display
-            document.getElementById('latitude').textContent = data.latitude.toFixed(4) + '°';
-            document.getElementById('longitude').textContent = data.longitude.toFixed(4) + '°';
-            document.getElementById('altitude').textContent = data.altitude.toFixed(2) + ' km';
-            document.getElementById('velocity').textContent = data.velocity.toFixed(0) + ' km/h';
-            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-            
-            // Calculate distance traveled
-            if (lastPosition) {
-                const R = 6371; // Earth's radius in km
-                const dLat = (data.latitude - lastPosition.lat) * Math.PI / 180;
-                const dLon = (data.longitude - lastPosition.lon) * Math.PI / 180;
-                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                          Math.cos(lastPosition.lat * Math.PI / 180) * Math.cos(data.latitude * Math.PI / 180) *
-                          Math.sin(dLon/2) * Math.sin(dLon/2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                const distance = R * c;
-                
-                // Only add reasonable distances (ISS moves ~7.66 km/s)
-                if (distance < 50) { 
-                    totalDistance += distance;
-                    document.getElementById('distanceTraveled').textContent = totalDistance.toFixed(0) + ' km';
-                }
-            }
-            lastPosition = { lat: data.latitude, lon: data.longitude };
-            
-            // Update country flyover
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${data.latitude}&lon=${data.longitude}&zoom=3`)
-                .then(res => res.json())
-                .then(geoData => {
-                    const country = geoData.address?.country || 'International Waters';
-                    const flag = geoData.address?.country_code ? 
-                        `https://flagcdn.com/24x18/${geoData.address.country_code.toLowerCase()}.png` : null;
-                    
-                    document.getElementById('currentCountry').innerHTML = flag ? 
-                        `<img src="${flag}" style="width: 24px; margin-right: 8px; vertical-align: middle;">${country}` : 
-                        `🌊 ${country}`;
-                })
-                .catch(() => {
-                    document.getElementById('currentCountry').textContent = '🌊 Ocean';
-                });
-            
-            // Update map
-            issMarker.setLatLng([data.latitude, data.longitude]);
-            
-            // Add to path
-            issPath.push([data.latitude, data.longitude]);
-            if (issPath.length > 100) issPath.shift();
-            pathLine.setLatLngs(issPath);
-            
-            // Auto-center map
-            if (isTracking) {
-                map.setView([data.latitude, data.longitude], map.getZoom());
-            }
-            
-            // Update status
-            document.getElementById('status').textContent = 'Live - Tracking Active';
-            document.querySelector('.pulse').style.backgroundColor = '#4ade80';
-            
-        } catch (error) {
-            console.error('Error:', error);
-            document.getElementById('status').textContent = 'Connection Error';
-            document.querySelector('.pulse').style.backgroundColor = '#ef4444';
+        // DEMO VERSION - For video recording only!
+let demoStep = 0;
+const demoPath = [
+    // Start over Pacific approaching California (0-10 sec)
+    { lat: 37.7749, lon: -122.4194, country: 'United States', code: 'us', city: 'California' },
+    { lat: 36.7783, lon: -119.4179, country: 'United States', code: 'us', city: 'California' },
+    
+    // Cross USA (10-20 sec)
+    { lat: 35.2271, lon: -101.8313, country: 'United States', code: 'us', city: 'Texas' },
+    { lat: 32.7767, lon: -96.7970, country: 'United States', code: 'us', city: 'Dallas' },
+    
+    // Over Mexico (20-25 sec)
+    { lat: 23.6345, lon: -102.5528, country: 'Mexico', code: 'mx', city: 'Mexico' },
+    { lat: 19.4326, lon: -99.1332, country: 'Mexico', code: 'mx', city: 'Mexico City' },
+    
+    // Cross Atlantic to Europe (25-35 sec)
+    { lat: 28.0339, lon: -81.9498, country: 'International Waters', code: null, city: 'Atlantic Ocean' },
+    { lat: 40.4168, lon: -3.7038, country: 'Spain', code: 'es', city: 'Madrid' },
+    
+    // Through Europe (35-50 sec)
+    { lat: 48.8566, lon: 2.3522, country: 'France', code: 'fr', city: 'Paris' },
+    { lat: 51.5074, lon: -0.1278, country: 'United Kingdom', code: 'gb', city: 'London' },
+    { lat: 52.5200, lon: 13.4050, country: 'Germany', code: 'de', city: 'Berlin' },
+    
+    // Eastern Europe to Asia (50-65 sec)
+    { lat: 55.7558, lon: 37.6173, country: 'Russia', code: 'ru', city: 'Moscow' },
+    { lat: 56.8389, lon: 60.6057, country: 'Russia', code: 'ru', city: 'Yekaterinburg' },
+    
+    // Over India (65-80 sec)
+    { lat: 28.6139, lon: 77.2090, country: 'India', code: 'in', city: 'New Delhi' },
+    { lat: 19.0760, lon: 72.8777, country: 'India', code: 'in', city: 'Mumbai' },
+    
+    // Southeast Asia (80-95 sec)
+    { lat: 13.7563, lon: 100.5018, country: 'Thailand', code: 'th', city: 'Bangkok' },
+    { lat: 1.3521, lon: 103.8198, country: 'Singapore', code: 'sg', city: 'Singapore' },
+    
+    // Indonesia to Australia (95-110 sec)
+    { lat: -6.2088, lon: 106.8456, country: 'Indonesia', code: 'id', city: 'Jakarta' },
+    { lat: -31.9505, lon: 115.8605, country: 'Australia', code: 'au', city: 'Perth' },
+    { lat: -33.8688, lon: 151.2093, country: 'Australia', code: 'au', city: 'Sydney' },
+    
+    // Final stretch over Pacific (110-120 sec)
+    { lat: -36.8485, lon: 174.7633, country: 'New Zealand', code: 'nz', city: 'Auckland' },
+    { lat: -27.4698, lon: 153.0251, country: 'International Waters', code: null, city: 'Pacific Ocean' },
+    { lat: 35.6762, lon: 139.6503, country: 'Japan', code: 'jp', city: 'Tokyo' }
+];
+
+async function updateISSPosition() {
+    try {
+        // Get current position from the demo path
+        const currentPos = demoPath[demoStep % demoPath.length];
+        
+        // Simulate real ISS data
+        const fakeData = {
+            latitude: currentPos.lat + (Math.random() * 0.1 - 0.05), // Small random variation
+            longitude: currentPos.lon + (Math.random() * 0.1 - 0.05),
+            altitude: 408 + Math.random() * 10, // 408-418 km
+            velocity: 27500 + Math.random() * 200 // 27500-27700 km/h
+        };
+        
+        // Update display
+        document.getElementById('latitude').textContent = fakeData.latitude.toFixed(4) + '°';
+        document.getElementById('longitude').textContent = fakeData.longitude.toFixed(4) + '°';
+        document.getElementById('altitude').textContent = fakeData.altitude.toFixed(2) + ' km';
+        document.getElementById('velocity').textContent = fakeData.velocity.toFixed(0) + ' km/h';
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        
+        // Update country display
+        if (currentPos.code) {
+            document.getElementById('currentCountry').innerHTML = 
+                `<img src="https://flagcdn.com/24x18/${currentPos.code}.png" style="width: 24px; margin-right: 8px; vertical-align: middle;">${currentPos.country}`;
+        } else {
+            document.getElementById('currentCountry').innerHTML = `🌊 ${currentPos.country}`;
         }
+        
+        // Calculate distance (will accumulate nicely)
+        if (lastPosition) {
+            const R = 6371;
+            const dLat = (fakeData.latitude - lastPosition.lat) * Math.PI / 180;
+            const dLon = (fakeData.longitude - lastPosition.lon) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lastPosition.lat * Math.PI / 180) * Math.cos(fakeData.latitude * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distance = R * c;
+            
+            totalDistance += distance;
+            document.getElementById('distanceTraveled').textContent = totalDistance.toFixed(0) + ' km';
+        }
+        lastPosition = { lat: fakeData.latitude, lon: fakeData.longitude };
+        
+        // Update map
+        issMarker.setLatLng([fakeData.latitude, fakeData.longitude]);
+        
+        // Add to path
+        issPath.push([fakeData.latitude, fakeData.longitude]);
+        if (issPath.length > 100) issPath.shift();
+        pathLine.setLatLngs(issPath);
+        
+        // Auto-center map with smooth zoom
+        if (isTracking) {
+            // Zoom out slightly when over oceans, zoom in over countries
+            const zoomLevel = currentPos.code ? 4 : 3;
+            map.setView([fakeData.latitude, fakeData.longitude], zoomLevel);
+        }
+        
+        // Update status
+        document.getElementById('status').textContent = 'Live - Tracking Active';
+        document.querySelector('.pulse').style.backgroundColor = '#4ade80';
+        
+        // Move to next position
+        demoStep++;
+        
+    } catch (error) {
+        console.error('Error:', error);
+        document.getElementById('status').textContent = 'Connection Error';
+        document.querySelector('.pulse').style.backgroundColor = '#ef4444';
     }
+}
 
     // Fetch Astronauts
     async function fetchAstronauts() {
